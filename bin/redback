@@ -2,4 +2,5 @@
 
 require_relative '../lib/redback.rb'
 
+STDOUT.sync = true
 Redback.new ARGV[0] { |url| puts url }

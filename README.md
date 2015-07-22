@@ -14,13 +14,22 @@ down your crawl.
 
 ## Usage
 
-redback can be used from the command line as a standlone program, for
-example:
+### Command line
 
 	$ redback http://example.com/
 
 …in which case it will print all the URLs it finds within the site
 `http://example.com/`.
+
+You can output he results to a file like this:
+
+    $ redback http://example.com > output.txt
+    
+Or feed them to another command line tool like this:
+
+    $ redback http://xkcd.com | grep xml
+
+### Within Ruby
 
 It can also be used as a library:
 
