@@ -2,6 +2,7 @@ require 'rubygems'
 require 'hpricot'
 require 'net/http'
 require 'parallel'
+require 'yaml'
 
 class Redback
 
@@ -10,7 +11,7 @@ class Redback
       url = 'http://' + url
     end
 
-    @uri = URI.parse(url)
+    @http_headers = YAML.load_file(File.join(File.dirname(__FILE__), '..', 'config', 'http_headers.yml'))
 
     @pages_hit = 0
 
@@ -39,32 +40,32 @@ class Redback
     # Don't crawl a page twice
     return if @visited.include? url
 
-    # Let's not hit this again
+    # Let'      s not hit this again
     @visited << url
 
     begin
       uri = URI.parse(URI.encode(url.to_s.strip))
-    rescue
+    rescue => er
+      puts "Could not parse URL: #{url}"
+      puts er.message
+      puts er.backtrace.join("\n")
       return
     end
 
-    headers = {
-      "User-Agent"     => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_3) AppleWebKit/537.31 (KHTML, like Gecko) Chrome/26.0.1410.43 Safari/537.31",
-      "Accept-Charset" => "ISO-8859-1,utf-8;q=0.7,*;q=0.3",
-      "Accept"         => "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-
     begin
-      req = Net::HTTP::Get.new(uri.path, headers)
+      req = Net::HTTP::Get.new(uri.path, @http_headers)
       response = Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }
 
       case response
-      when Net::HTTPRedirection
-        return crawl_page(response['location'], limit - 1)
-      when Net::HTTPSuccess
-        doc = Hpricot(response.body)
+        when Net::HTTPRedirection
+          return crawl_page(response['location'], limit - 1)
+        when Net::HTTPSuccess
+          doc = Hpricot(response.body)
       end
-    rescue
+    rescue => er
+      puts 'Could not get website content'
+      puts er.message
+      puts er.backtrace.join("\n")
       return
     end
 
@@ -85,7 +86,10 @@ class Redback
 
     begin
       uri = URI.parse(URI.encode(url.to_s.strip))
-    rescue
+    rescue => er
+      puts "Could not parse url: #{url}"
+      puts er.message
+      puts er.backtrace.join("\n")
       return
     end
 
@@ -142,6 +146,7 @@ class Redback
         begin
           href_uri = URI.parse(href)
         rescue
+          puts "href is not a url: #{href}"
           # No harm in this — if we can't parse it as a URI, it probably isn't one (`javascript:` links, etc.) and we can safely ignore it.
           next
         end
