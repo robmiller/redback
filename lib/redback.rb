@@ -170,7 +170,7 @@ class Redback
           url = @to_visit.pop
         end while (@visited.include? url)
 
-        crawl_page(url, block)
+        crawl_page(url)
       end
     }
   end
