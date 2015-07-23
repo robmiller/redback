@@ -33,7 +33,7 @@ class Redback
   def fix_url_formatting(url)
     url = url.strip
     url = "http://#{url}" unless url[/^http:\/\//] || url[/^https:\/\//]
-    url = "#{url}/" unless url.strip[-1] == "/"
+    url = "#{url}/" unless url[-1] == "/"
     url
   end
 
@@ -51,9 +51,9 @@ class Redback
     begin
       uri = URI.parse(URI.encode(url.to_s.strip))
     rescue => er
-      puts "Could not parse URL: #{url}"
-      puts er.message
-      puts er.backtrace.join("\n")
+      STDERR.puts "Could not parse URL: #{url}"
+      STDERR.puts er.message
+      STDERR.puts er.backtrace.join("\n")
       return
     end
 
@@ -69,9 +69,9 @@ class Redback
           @each_site.call url
       end
     rescue => er
-      puts 'Could not get website content'
-      puts er.message
-      puts er.backtrace.join("\n")
+      STDERR.puts 'Could not get website content'
+      STDERR.puts er.message
+      STDERR.puts er.backtrace.join("\n")
       return
     end
 
@@ -91,9 +91,9 @@ class Redback
     begin
       uri = URI.parse(URI.encode(url.to_s.strip))
     rescue => er
-      puts "Could not parse url: #{url}"
-      puts er.message
-      puts er.backtrace.join("\n")
+      STDERR.puts "Could not parse url: #{url}"
+      STDERR.puts er.message
+      STDERR.puts er.backtrace.join("\n")
       return
     end
 
