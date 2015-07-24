@@ -2,15 +2,14 @@ require 'rubygems'
 require 'hpricot'
 require 'net/http'
 require 'parallel'
+require 'yaml'
 
 class Redback
 
   def initialize(url, &each_site)
-    if url =~ /^(([a-zA-Z]|[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$/
-      url = 'http://' + url
-    end
+    url = fix_url_formatting(url)
 
-    @uri = URI.parse(url)
+    @http_headers = YAML.load_file(File.join(File.dirname(__FILE__), '..', 'config', 'http_headers.yml'))['headers']
 
     @pages_hit = 0
 
@@ -31,6 +30,13 @@ class Redback
     spider
   end
 
+  def fix_url_formatting(url)
+    url = url.strip
+    url = "http://#{url}" unless url[/^http:\/\//] || url[/^https:\/\//]
+    url = "#{url}/" unless url[-1] == "/"
+    url
+  end
+
   def queue_link(url)
     @to_visit << url
   end
@@ -44,33 +50,32 @@ class Redback
 
     begin
       uri = URI.parse(URI.encode(url.to_s.strip))
-    rescue
+    rescue => er
+      STDERR.puts "Could not parse URL: #{url}"
+      STDERR.puts er.message
+      STDERR.puts er.backtrace.join("\n")
       return
     end
 
-    headers = {
-      "User-Agent"     => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_3) AppleWebKit/537.31 (KHTML, like Gecko) Chrome/26.0.1410.43 Safari/537.31",
-      "Accept-Charset" => "ISO-8859-1,utf-8;q=0.7,*;q=0.3",
-      "Accept"         => "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-
     begin
-      req = Net::HTTP::Get.new(uri.path, headers)
+      req = Net::HTTP::Get.new(uri.path, @http_headers)
       response = Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }
 
       case response
-      when Net::HTTPRedirection
-        return crawl_page(response['location'], limit - 1)
-      when Net::HTTPSuccess
-        doc = Hpricot(response.body)
+        when Net::HTTPRedirection
+          return crawl_page(response['location'], limit - 1)
+        when Net::HTTPSuccess
+          doc = Hpricot(response.body)
+          @each_site.call url
       end
-    rescue
+    rescue => er
+      STDERR.puts 'Could not get website content'
+      STDERR.puts er.message
+      STDERR.puts er.backtrace.join("\n")
       return
     end
 
     @pages_hit += 1
-
-    @each_site.call url
 
     find_links(doc, url) do |link|
       next if @visited.include? link
@@ -85,7 +90,10 @@ class Redback
 
     begin
       uri = URI.parse(URI.encode(url.to_s.strip))
-    rescue
+    rescue => er
+      STDERR.puts "Could not parse url: #{url}"
+      STDERR.puts er.message
+      STDERR.puts er.backtrace.join("\n")
       return
     end
 
@@ -104,68 +112,67 @@ class Redback
     end
 
     hrefs.each do |href|
-        # Skip mailto links
-        next if href =~ /^mailto:/
+      # Skip mailto links
+      next if href =~ /^mailto:/
 
-        # If we're dealing with a host-relative URL (e.g. <img src="/foo/bar.jpg">), absolutify it.
-        if href.to_s =~ /^\//
-          href = uri.scheme + "://" + uri.host + href.to_s
-        end
+      # If we're dealing with a host-relative URL (e.g. <img src="/foo/bar.jpg">), absolutify it.
+      if href.to_s =~ /^\//
+        href = uri.scheme + "://" + uri.host + href.to_s
+      end
 
-        # If we're dealing with a path-relative URL, make it relative to the current directory.
-        unless href.to_s =~ /[a-z]+:\/\//
-          # Take everything up to the final / in the path to be the current directory.
-          if uri.path =~ /\//
-            /^(.*)\//.match(uri.path)
-            path = $1
+      # If we're dealing with a path-relative URL, make it relative to the current directory.
+      unless href.to_s =~ /[a-z]+:\/\//
+        # Take everything up to the final / in the path to be the current directory.
+        if uri.path =~ /\//
+          /^(.*)\//.match(uri.path)
+          path = $1
           # If we're on the homepage, then we don't need a path.
-          else
-            path = ""
-          end
-
-          href = uri.scheme + "://" + uri.host + path + "/" + href.to_s
+        else
+          path = ""
         end
+        href = uri.scheme + "://" + uri.host + path + "/" + href.to_s
+      end
 
-        # At this point, we should have an absolute URL regardless of
-        # its original format.
+      # At this point, we should have an absolute URL regardless of
+      # its original format.
 
-        # Strip hash links
-        if ( @options[:ignore_hash] )
-          href.gsub!(/(#.*?)$/, '')
-        end
+      # Strip hash links
+      if (@options[:ignore_hash])
+        href.gsub!(/(#.*?)$/, '')
+      end
 
-        # Strip query strings
-        if ( @options[:ignore_query_string] )
-          href.gsub!(/(\?.*?)$/, '')
-        end
+      # Strip query strings
+      if (@options[:ignore_query_string])
+        href.gsub!(/(\?.*?)$/, '')
+      end
 
-        begin
-          href_uri = URI.parse(href)
-        rescue
-          # No harm in this — if we can't parse it as a URI, it probably isn't one (`javascript:` links, etc.) and we can safely ignore it.
-          next
-        end
+      begin
+        href_uri = URI.parse(href)
+      rescue
+        # No harm in this — if we can't parse it as a URI, it probably isn't one (`javascript:` links, etc.) and we can safely ignore it.
+        next
+      end
 
-        next if href_uri.host != uri.host
-        next unless href_uri.scheme =~ /^https?$/
+      next if href_uri.host != uri.host
+      next unless href_uri.scheme =~ /^https?$/
 
-        yield href
+      yield href
     end
   end
 
   def spider(&block)
     Parallel.in_threads(@options[:threads]) { |thread_number|
-        # We've crawled too many pages
-        next if @pages_hit > @options[:num_pages] && @options[:num_pages] >= 0
+      # We've crawled too many pages
+      next if @pages_hit > @options[:num_pages] && @options[:num_pages] >= 0
 
-        while @to_visit.length > 0 do
-          begin
-            url = @to_visit.pop
-          end while ( @visited.include? url )
+      while @to_visit.length > 0 do
+        begin
+          url = @to_visit.pop
+        end while (@visited.include? url)
 
-          crawl_page(url, block)
-        end
-      }
+        crawl_page(url)
+      end
+    }
   end
 end
 
